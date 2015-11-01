@@ -1,4 +1,13 @@
 # Board layout
+For the second attempt I'm using a 22x27 prototyping board. This has a lot more
+room for resistors, and also supports a better layout for the UI components.
+
+## Original design (no way)
+**Note:** This is what I had originally intended to do, but gave up at this
+point:
+
+![too many resistors](http://spencertipping.com/arduino-fngen-small-board-nope.jpg)
+
 I'm using a 14x20 prototyping board with some headers soldered to match Arduino
 pin positions. Here are the large components before soldering (ignore the
 trimmer values; at the time this photo was taken I hadn't solved for resistors
