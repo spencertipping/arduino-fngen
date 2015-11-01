@@ -1,0 +1,4 @@
+#!/usr/bin/perl -n
+  /^#perl (.*)/         ? eval "$1\n;print qq{\\n};"
+: /^#include\s+"(.*)"$/ ? print `$0 src/$1`
+                        : print;

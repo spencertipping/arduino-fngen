@@ -1,0 +1,2 @@
+#!/bin/bash
+./preprocess src/main.cc > arduinofngen.ino
