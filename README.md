@@ -2,7 +2,7 @@
 Useful for arbitrary low-frequency signals -- anything up to about 60 kHz. (I'm
 also working on a Linux/VGA-based signal generator for higher frequencies, so
 stay tuned.) Built for the Arduino MEGA 2560 R3 with an LCD/keypad shield and a
-dual 12-bit R-2R DAC described below. The board has six voltage divider pots
+dual 12-bit R-2R DAC described below. The board has four voltage divider pots
 to provide quick adjustment and twelve trimmers to calibrate the six
 most-significant bits within each channel. (See the [hardware
 description](doc/r2r.md) for details.)
@@ -10,7 +10,7 @@ description](doc/r2r.md) for details.)
 ## Output limits
 All output is filtered through an LM358 op-amp, which has a 0.3V/μs slew rate
 per output. At 5Vpp, this comes out to about 16.6μs to slew a full cycle = 60
-kHz.
+kHz, which conveniently is just over 256 clock cycles.
 
 ## Timing and analog input
 `analogRead()` is right out because using it introduces a 100 μs flatline in

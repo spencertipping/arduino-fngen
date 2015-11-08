@@ -1,6 +1,4 @@
 #!/usr/bin/perl -n
-use Math::Trig ':pi';
-sub run {eval $_[0]; die $@ if $@}
-  /^#perl (.*)/         ? run "$1\n;print qq{\\n};"
+  /^#perl (.*)/         ? eval "$1\n;print qq{\\n};"
 : /^#include\s+"(.*)"$/ ? print `$0 src/$1`
                         : print;
