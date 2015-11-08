@@ -12,10 +12,15 @@
 #define WT_INTERP (16 - WT_BITS)
 #define WT_MASK   (WT_SIZE - 1)
 
-uint16_t const sine_table[] PROGMEM = {
-#perl wt {sin($_ * pi2)}
+// Quarter-turn sine table, so we mirror and negate accordingly
+uint16_t const sine_qtable[] PROGMEM = {
+  #perl wt {sin($_ * pip2)}
 };
 
+#define linear_8(x, y, w) \
+  ((uint32_t) (x) * (255 - (w)) + (uint32_t) (y) * (w) >> 8)
+
+// Linear-interpolation point retrieval from a wavetable
 uint16_t wt_linear(uint16_t const *const wt, uint16_t const i)
 {
   uint16_t const e1 = i >> WT_INTERP;
@@ -26,7 +31,13 @@ uint16_t wt_linear(uint16_t const *const wt, uint16_t const i)
        + (uint32_t) pgm_read_word_near(wt + e2) * w2 >> WT_INTERP;
 }
 
-#define sine(i)   wt_linear(sine_table, (i))
-#define cosine(i) wt_linear(sine_table, (i) + 4096)
+uint16_t sine(uint16_t const t)
+{
+  uint16_t s = wt_linear(sine_qtable, (t & 0x4000 ? ~t & 0x3fff
+                                                  :  t & 0x3fff) << 2);
+  return t & 0x8000 ? 0xffff - s : s;
+}
+
+#define cosine(t) sine((t) + 16384)
 
 #endif

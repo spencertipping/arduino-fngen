@@ -1,6 +1,8 @@
 #ifndef ASYNC_ANALOG_H
 #define ASYNC_ANALOG_H
 
+#include "emit.hh"
+
 uint16_t *async_analog_dest = 0;
 
 #define async_analog_ready() (!async_analog_dest)
@@ -8,7 +10,7 @@ uint16_t *async_analog_dest = 0;
 #define async_analog_check()                                            \
   do                                                                    \
   {                                                                     \
-    if (!bit_is_set(ADCSRA, ADSC) && async_analog_dest)                 \
+    if (async_analog_dest && !bit_is_set(ADCSRA, ADSC))                 \
     {                                                                   \
       uint8_t low, high;                                                \
       low  = ADCL;                                                      \
@@ -40,12 +42,27 @@ class AnalogMonitor
  public:
   AnalogMonitor(uint8_t _pin): pin(_pin), last_value(0), value(0) {}
 
-  bool has_changed()
+  void reset()
+  {
+    last_value = value >> 2;
+  }
+
+  void sync()
+  {
+    update();
+    while (!async_analog_ready())
+    {
+      emit();
+      async_analog_check();
+    }
+    reset();
+  }
+
+  char delta(int shift)
   {
     async_analog_check();
-    bool result = value >> 2 != last_value;
-    last_value  = value >> 2;
-    return result;
+    return ((char) (value >> 2) - (char) last_value) + (1 << shift - 1)
+           >> shift;
   }
 
   void update()
@@ -61,7 +78,10 @@ class AnalogMonitor
   }
 };
 
-#define LCD_POT 6
+#define N_POTS (sizeof(pots) / sizeof(AnalogMonitor))
+#define CODE_POT 1
+#define MOVE_POT 2
+#define LCD_POT  6
 
 AnalogMonitor pots[] = { AnalogMonitor(9),
                          AnalogMonitor(10),
@@ -70,5 +90,15 @@ AnalogMonitor pots[] = { AnalogMonitor(9),
                          AnalogMonitor(13),
                          AnalogMonitor(14),
                          AnalogMonitor(0) };
+
+bool any_pot_delta = false;
+char which_pot     = 0;
+
+#define check_pot()                                             \
+  do {                                                          \
+    if (++which_pot >= N_POTS) which_pot = 0;                   \
+    pots[which_pot].update();                                   \
+    any_pot_delta |= pots[which_pot].delta(5);                  \
+  } while (0)
 
 #endif

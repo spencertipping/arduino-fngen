@@ -25,7 +25,7 @@ class LCDKey
     }
 
     switch (a) {
-    case 4:  expecting_key = false; return LCDDown;
+    case 3:  expecting_key = false; return LCDDown;
     case 1:  expecting_key = false; return LCDUp;
     case 6:  expecting_key = false; return LCDLeft;
     case 0:  expecting_key = false; return LCDRight;
