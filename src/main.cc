@@ -6,6 +6,7 @@
 #include "interpreter.hh"
 #include "lcd.hh"
 #include "repeat.hh"
+#include "shapes.hh"
 
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 LCDKey        lcdkey;
