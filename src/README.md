@@ -10,5 +10,5 @@ Things that happen during the build process:
 2. Any `#perl ...` directives are evaluated by perl and the results placed into
    the source code. This is how I generate things like sine wave tables.
 
-The result of all of this goes into `arduinofngen.ino`, which can be uploaded
-directly by the Arduino IDE.
+The result of all of this goes into `../arduinofngen.ino`, which can be
+uploaded directly by the Arduino IDE.

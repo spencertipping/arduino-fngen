@@ -125,6 +125,131 @@ char which_pot     = 0;
   } while (0)
 
 #endif
+#ifndef ASYNC_ANALOG_H
+#define ASYNC_ANALOG_H
+
+#ifndef EMIT_H
+#define EMIT_H
+
+#define BUF_SIZE 2048
+uint8_t a_buf[BUF_SIZE];
+uint8_t c_buf[BUF_SIZE];
+uint8_t l_buf[BUF_SIZE];
+
+uint16_t emit_mask = 0xffff;
+
+#define emit()                                          \
+  do {                                                  \
+    uint16_t EMIT_t = TCNT3 & emit_mask;                \
+    uint8_t  EMIT_a = a_buf[EMIT_t];                    \
+    uint8_t  EMIT_c = c_buf[EMIT_t];                    \
+    uint8_t  EMIT_l = l_buf[EMIT_t];                    \
+    PORTA = EMIT_a;                                     \
+    PORTC = EMIT_c;                                     \
+    PORTL = EMIT_l;                                     \
+  } while (0)
+
+#endif
+
+uint16_t *async_analog_dest = 0;
+
+#define async_analog_ready() (!async_analog_dest)
+
+#define async_analog_check()                                            \
+  do                                                                    \
+  {                                                                     \
+    if (async_analog_dest && !bit_is_set(ADCSRA, ADSC))                 \
+    {                                                                   \
+      uint8_t low, high;                                                \
+      low  = ADCL;                                                      \
+      high = ADCH;                                                      \
+      *async_analog_dest = high << 8 | low;                             \
+      async_analog_dest = 0;                                            \
+    }                                                                   \
+  } while (0)
+
+#define async_analog_read(pin, into)                                    \
+  do                                                                    \
+  {                                                                     \
+    if (async_analog_ready())                                           \
+    {                                                                   \
+      async_analog_dest = (into);                                       \
+      ADMUX   = DEFAULT << 6 | (pin) & 7;                               \
+      ADCSRB  = ((pin) >> 3 & 1) << MUX5;                               \
+      ADCSRA |= 1 << ADSC;                                              \
+    }                                                                   \
+  } while (0)
+
+class AnalogMonitor
+{
+ private:
+  uint8_t  pin;
+  uint8_t  last_value;
+  uint16_t value;
+
+ public:
+  AnalogMonitor(uint8_t _pin): pin(_pin), last_value(0), value(0) {}
+
+  void reset()
+  {
+    last_value = value >> 2;
+  }
+
+  void sync()
+  {
+    update();
+    while (!async_analog_ready())
+    {
+      emit();
+      async_analog_check();
+    }
+    reset();
+  }
+
+  char delta(int shift)
+  {
+    async_analog_check();
+    return ((char) (value >> 2) - (char) last_value) + (1 << shift - 1)
+           >> shift;
+  }
+
+  void update()
+  {
+    async_analog_check();
+    async_analog_read(pin, &value);
+  }
+
+  uint16_t val()
+  {
+    async_analog_check();
+    return value;
+  }
+};
+
+#define N_POTS (sizeof(pots) / sizeof(AnalogMonitor))
+#define CODE_POT 1
+#define MOVE_POT 2
+#define LCD_POT  6
+
+AnalogMonitor pots[] = { AnalogMonitor(9),
+                         AnalogMonitor(10),
+                         AnalogMonitor(11),
+                         AnalogMonitor(12),
+                         AnalogMonitor(13),
+                         AnalogMonitor(14),
+                         AnalogMonitor(0) };
+
+bool any_pot_delta = false;
+char which_pot     = 0;
+
+#define check_pot()                                             \
+  do {                                                          \
+    if (++which_pot >= N_POTS) which_pot = 0;                   \
+    pots[which_pot].update();                                   \
+    any_pot_delta |= pots[which_pot].delta(5);                  \
+  } while (0)
+
+#endif
 #ifndef EMIT_H
 #define EMIT_H
 
@@ -310,6 +435,147 @@ void interpret(struct program const *const p, struct stack *const s)
 }
 
 #endif
+#ifndef REPEAT_H
+#define REPEAT_H
+
+#define repeat_2(x) x x
+#define repeat_4(x) repeat_2(repeat_2(x))
+#define repeat_8(x) repeat_4(repeat_2(x))
+#define repeat_16(x) repeat_4(repeat_4(x))
+#define repeat_32(x) repeat_8(repeat_4(x))
+#define repeat_64(x) repeat_8(repeat_8(x))
+
+#endif
+
+program p;
+
+// Progressively evaluate to get fast approximate results
+void recompile()
+{
+  stack s;
+  uint16_t a, b, la, lb;
+
+#define emit_a(i, va, vb)                                       \
+  do {                                                          \
+    a_buf[i] = ((va) & 0x0f00) >> 4 | (vb & 0x0f00) >> 8;       \
+  } while (0)
+
+#define emit_c(i, va, vb)                                       \
+  do {                                                          \
+    c_buf[i] = (va) & 0x00f0 | (vb & 0x00f0) >> 4;              \
+  } while (0)
+
+#define emit_l(i, va, vb)                                       \
+  do {                                                          \
+    l_buf[i] = ((va) & 0x000f) << 4 | vb & 0x000f;              \
+  } while (0)
+
+#define recompile_one(i)                                        \
+  do {                                                          \
+    s.init1((i) << 1);                                          \
+    interpret(&p, &s);                                          \
+    la = a;                                                     \
+    lb = b;                                                     \
+    a = s.pop();                                                \
+    b = s.pop();                                                \
+    a = (a >> 1) + (a >> 3);                                    \
+    b = (b >> 1) + (b >> 3);                                    \
+    emit_a(i, a, b);                                            \
+    emit_c(i, a, b);                                            \
+    emit_l(i, a, b);                                            \
+  } while (0)
+
+#define approx_stage(bits, ebits)                               \
+  do {                                                          \
+    recompile_one(0);                                           \
+    for (int i = 1 << bits;                                     \
+         i < BUF_SIZE && !any_pot_delta; i += 1 << bits)        \
+    {                                                           \
+      check_pot();                                              \
+      recompile_one(i);                                         \
+      for (int j = 1 << ebits; j < 1 << bits; j += 1 << ebits)  \
+      {                                                         \
+        uint8_t  w  = j << 8 - bits;                            \
+        uint16_t va = linear_8(la, a, w);                       \
+        uint16_t vb = linear_8(lb, b, w);                       \
+        emit_a(i + j - (1 << bits), va, vb);                    \
+        emit_c(i + j - (1 << bits), va, vb);                    \
+        emit_l(i + j - (1 << bits), va, vb);                    \
+      }                                                         \
+    }                                                           \
+    emit_mask = -1 << ebits;                                    \
+  } while (0)
+
+  emit_mask = -1 << 5;
+  approx_stage(6, 3);
+  approx_stage(3, 1);
+
+  for (int i = 0; i < BUF_SIZE && !any_pot_delta; ++i)
+  {
+    check_pot();
+    recompile_one(i);
+  }
+
+#undef recompile_one
+}
+#ifndef EMIT_H
+#define EMIT_H
+
+#define BUF_SIZE 2048
+uint8_t a_buf[BUF_SIZE];
+uint8_t c_buf[BUF_SIZE];
+uint8_t l_buf[BUF_SIZE];
+
+uint16_t emit_mask = 0xffff;
+
+#define emit()                                          \
+  do {                                                  \
+    uint16_t EMIT_t = TCNT3 & emit_mask;                \
+    uint8_t  EMIT_a = a_buf[EMIT_t];                    \
+    uint8_t  EMIT_c = c_buf[EMIT_t];                    \
+    uint8_t  EMIT_l = l_buf[EMIT_t];                    \
+    PORTA = EMIT_a;                                     \
+    PORTC = EMIT_c;                                     \
+    PORTL = EMIT_l;                                     \
+  } while (0)
+
+#endif
+#ifndef INTERPRETER_H
+#define INTERPRETER_H
+
+#ifndef EMIT_H
+#define EMIT_H
+
+#define BUF_SIZE 2048
+uint8_t a_buf[BUF_SIZE];
+uint8_t c_buf[BUF_SIZE];
+uint8_t l_buf[BUF_SIZE];
+
+uint16_t emit_mask = 0xffff;
+
+#define emit()                                          \
+  do {                                                  \
+    uint16_t EMIT_t = TCNT3 & emit_mask;                \
+    uint8_t  EMIT_a = a_buf[EMIT_t];                    \
+    uint8_t  EMIT_c = c_buf[EMIT_t];                    \
+    uint8_t  EMIT_l = l_buf[EMIT_t];                    \
+    PORTA = EMIT_a;                                     \
+    PORTC = EMIT_c;                                     \
+    PORTL = EMIT_l;                                     \
+  } while (0)
+
+#endif
+#ifndef REPEAT_H
+#define REPEAT_H
+
+#define repeat_2(x) x x
+#define repeat_4(x) repeat_2(repeat_2(x))
+#define repeat_8(x) repeat_4(repeat_2(x))
+#define repeat_16(x) repeat_4(repeat_4(x))
+#define repeat_32(x) repeat_8(repeat_4(x))
+#define repeat_64(x) repeat_8(repeat_8(x))
+
+#endif
 #ifndef WAVETABLES_H
 #define WAVETABLES_H
 
@@ -351,6 +617,90 @@ uint16_t sine(uint16_t const t)
 }
 
 #define cosine(t) sine((t) + 16384)
+
+#endif
+
+#define STACK_SIZE   4
+#define PROGRAM_SIZE 32
+
+char const *const commands = " +*-^vqs:./abcdefO01234567";
+uint8_t const command_len  = strlen(commands);
+
+typedef uint16_t stack_value;
+
+struct stack
+{
+  stack_value values[STACK_SIZE];
+  uint8_t     top;
+
+  stack_value peek() { return top > 0 ? values[top - 1] : 0; }
+  stack_value pop()  { return top > 0 ? values[--top]   : 0; }
+  void        push(stack_value const v)
+    { if (top < STACK_SIZE) values[top++] = v; }
+
+  void clear()
+  {
+    top = 0;
+  }
+
+  void init1(stack_value const v)
+  {
+    clear();
+    push(v);
+  }
+};
+
+struct program
+{
+  char code[PROGRAM_SIZE];
+
+  void set(char const *const s)
+  {
+    for (int i = 0; i < PROGRAM_SIZE; ++i) code[i] = 0;
+    for (int i = 0; s[i]; ++i)
+    {
+      char const *const k = strchr(commands, s[i]);
+      code[i] = k >= commands && k < commands + command_len ? k - commands : 0;
+    }
+  }
+};
+
+void interpret(struct program const *const p, struct stack *const s)
+{
+  char c;
+
+  stack_value v1;
+  stack_value v2;
+
+  for (int i = 0; i < PROGRAM_SIZE; ++i)
+  {
+    repeat_16( emit(); )
+    switch (c = commands[p->code[i]])
+    {
+      case 'O': s->push(0); break;
+      case '0': case '1': case '2': case '3':
+      case '4': case '5': case '6': case '7':
+        s->push(s->pop() >> 3 | c - '0' << 11);
+        break;
+
+      case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
+        s->push(pots[c - 'a'].val() << 2);
+        break;
+
+      case '^': s->push(s->pop() << 4);                                 break;
+      case 'v': s->push(s->pop() >> 4);                                 break;
+
+      case '+': s->push(s->pop() + s->pop());                           break;
+      case '-': s->push(-s->pop());                                     break;
+      case '*': s->push((int32_t) s->pop() * (int32_t) s->pop() >> 12); break;
+      case 'q': s->push(-(s->pop() > s->pop()));                        break;
+      case 's': s->push(sine((uint32_t) s->pop() * 16) >> 4);           break;
+      case ':': s->push(s->peek());                                     break;
+      case '.': s->pop();                                               break;
+      case '/': v1 = s->pop(); v2 = s->pop(); s->push(v1); s->push(v2); break;
+    }
+  }
+}
 
 #endif
 #ifndef LCD_DETECTOR_H
@@ -532,80 +882,8 @@ class LCDKey
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 LCDKey        lcdkey;
 
-program p;
 int edit_point = 0;
 bool run_mode  = false;
-
-// Progressively evaluate to get fast approximate results
-void recompile()
-{
-  stack s;
-  uint16_t a, b, la, lb;
-
-#define emit_a(i, va, vb)                                       \
-  do {                                                          \
-    a_buf[i] = ((va) & 0x0f00) >> 4 | (vb & 0x0f00) >> 8;       \
-  } while (0)
-
-#define emit_c(i, va, vb)                                       \
-  do {                                                          \
-    c_buf[i] = (va) & 0x00f0 | (vb & 0x00f0) >> 4;              \
-  } while (0)
-
-#define emit_l(i, va, vb)                                       \
-  do {                                                          \
-    l_buf[i] = ((va) & 0x000f) << 4 | vb & 0x000f;              \
-  } while (0)
-
-#define recompile_one(i)                                        \
-  do {                                                          \
-    s.init1((i) << 1);                                          \
-    interpret(&p, &s);                                          \
-    la = a;                                                     \
-    lb = b;                                                     \
-    a = s.pop();                                                \
-    b = s.pop();                                                \
-    a = (a >> 1) + (a >> 3);                                    \
-    b = (b >> 1) + (b >> 3);                                    \
-    emit_a(i, a, b);                                            \
-    emit_c(i, a, b);                                            \
-    emit_l(i, a, b);                                            \
-  } while (0)
-
-#define approx_stage(bits, ebits)                               \
-  do {                                                          \
-    recompile_one(0);                                           \
-    for (int i = 1 << bits;                                     \
-         i < BUF_SIZE && !any_pot_delta; i += 1 << bits)        \
-    {                                                           \
-      check_pot();                                              \
-      recompile_one(i);                                         \
-      for (int j = 1 << ebits; j < 1 << bits; j += 1 << ebits)  \
-      {                                                         \
-        uint8_t  w  = j << 8 - bits;                            \
-        uint16_t va = linear_8(la, a, w);                       \
-        uint16_t vb = linear_8(lb, b, w);                       \
-        emit_a(i + j - (1 << bits), va, vb);                    \
-        emit_c(i + j - (1 << bits), va, vb);                    \
-        emit_l(i + j - (1 << bits), va, vb);                    \
-      }                                                         \
-    }                                                           \
-    emit_mask = -1 << ebits;                                    \
-  } while (0)
-
-  emit_mask = -1 << 5;
-  approx_stage(7, 5);
-  approx_stage(5, 3);
-  approx_stage(3, 1);
-
-  for (int i = 0; i < BUF_SIZE && !any_pot_delta; ++i)
-  {
-    check_pot();
-    recompile_one(i);
-  }
-
-#undef recompile_one
-}
 
 void update_display()
 {
